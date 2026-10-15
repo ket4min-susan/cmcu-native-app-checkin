@@ -374,6 +374,19 @@ void main() {
   ) async {
     await mount(tester, const Size(320, 720), scale: 2, reducedMotion: true);
     expect(tester.takeException(), isNull);
+    // Nhãn phải xuống hàng ở chữ lớn, không chèn ép tiêu đề vào cột hẹp.
+    final heading = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          widget.data == 'Lịch học' &&
+          widget.style?.fontWeight == FontWeight.w900,
+    );
+    final count = find.text('2 buổi / tuần');
+    expect(
+      tester.getTopLeft(count).dy,
+      greaterThan(tester.getBottomLeft(heading).dy),
+    );
+    expect(tester.getSize(heading).width, lessThanOrEqualTo(280));
     await tester.tap(find.widgetWithText(NavigationDestination, 'Kết quả'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

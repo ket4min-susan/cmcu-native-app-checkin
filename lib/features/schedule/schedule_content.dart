@@ -69,51 +69,7 @@ class _ScheduleContentState extends State<ScheduleContent> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'KẾ HOẠCH CÁ NHÂN',
-                              style: t.labelSmall?.copyWith(
-                                color: s.primary,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.4,
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              'Lịch học',
-                              style: t.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: -.8,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 11,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: s.primaryContainer,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          '${c.entries.length} buổi / tuần',
-                          style: t.labelSmall?.copyWith(
-                            color: s.onPrimaryContainer,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  child: _ScheduleHeading(lessonCount: c.entries.length),
                 ),
                 Container(
                   margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -491,6 +447,74 @@ class _DayOverview extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Chữ lớn cần toàn bộ chiều ngang; nhãn thống kê chuyển xuống dưới tiêu đề.
+class _ScheduleHeading extends StatelessWidget {
+  const _ScheduleHeading({required this.lessonCount});
+  final int lessonCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final title = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'KẾ HOẠCH CÁ NHÂN',
+          style: text.labelSmall?.copyWith(
+            color: scheme.primary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.4,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          'Lịch học',
+          style: text.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w900,
+            letterSpacing: -.8,
+          ),
+        ),
+      ],
+    );
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        '$lessonCount buổi / tuần',
+        style: text.labelSmall?.copyWith(
+          color: scheme.onPrimaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 320 ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.3;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [title, const SizedBox(height: 12), badge],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: title),
+            const SizedBox(width: 12),
+            badge,
+          ],
+        );
+      },
     );
   }
 }
