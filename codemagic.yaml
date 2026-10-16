@@ -28,8 +28,16 @@ workflows:
       - name: Validate Flutter source
         script: |
           set -e
+          flutter config --no-analytics
           flutter analyze
-          flutter test
+
+      - name: Run tests
+        script: |
+          set -e
+          # --timeout chặn test treo: lỗi sẽ báo sau 60s thay vì chờ
+          # hết 10 phút mặc định của flutter_test, giữ build không vượt
+          # max_build_duration.
+          flutter test --timeout 60s --reporter expanded
 
       - name: Prepare iOS project
         script: |
