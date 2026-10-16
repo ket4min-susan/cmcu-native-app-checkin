@@ -16,16 +16,16 @@ class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({
     super.key,
     required this.controller,
+    required this.preferences,
     required this.checkInRequested,
     required this.onCheckInRequestHandled,
     required this.onSignOut,
     required this.onSessionExpired,
-    this.preferences,
   });
   final ScheduleController controller;
   final bool checkInRequested;
   final VoidCallback onCheckInRequestHandled, onSignOut, onSessionExpired;
-  final AppPreferences? preferences;
+  final AppPreferences preferences;
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
@@ -37,8 +37,7 @@ class _ScheduleScreenState extends State<ScheduleScreen>
   bool _gradesVisited = false;
   int _tab = 0;
   late GradesController _grades;
-  late final AppPreferences _fallbackPreferences = AppPreferences();
-  AppPreferences get preferences => widget.preferences ?? _fallbackPreferences;
+  AppPreferences get preferences => widget.preferences;
   late final AnimationController _transition = AnimationController(
     vsync: this,
     value: 1,
@@ -90,7 +89,6 @@ class _ScheduleScreenState extends State<ScheduleScreen>
     c.removeListener(_onChange);
     _grades.dispose();
     _transition.dispose();
-    _fallbackPreferences.dispose();
     super.dispose();
   }
 

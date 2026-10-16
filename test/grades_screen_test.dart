@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:cmc_checkin/core/academic_models.dart';
 import 'package:cmc_checkin/core/app_brand.dart';
+import 'package:cmc_checkin/core/app_preferences.dart';
 import 'package:cmc_checkin/core/models.dart';
 import 'package:cmc_checkin/core/portal_api.dart';
 import 'package:cmc_checkin/features/schedule/schedule_controller.dart';
@@ -132,6 +133,8 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final api = ScreenApi();
+    final preferences = AppPreferences();
+    addTearDown(preferences.dispose);
     final controller = ScheduleController(
       api: api,
       fallbackIp: '',
@@ -158,6 +161,7 @@ void main() {
           ),
           home: ScheduleScreen(
             controller: controller,
+            preferences: preferences,
             checkInRequested: false,
             onCheckInRequestHandled: () {},
             onSignOut: () {},

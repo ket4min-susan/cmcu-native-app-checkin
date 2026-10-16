@@ -50,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Timer? _timer;
   bool _done = false;
   bool _probing = false;
+  bool _menuError = false;
   int _probesWithToken = 0;
 
   @override
@@ -60,7 +61,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _startProbe() {
     _timer?.cancel();
+    _menuError = false;
     _timer = Timer.periodic(_probeInterval, (_) => _probe());
+  }
+
+  void _retry() {
+    _probesWithToken = 0;
+    _startProbe();
+    _web?.reload();
   }
 
   Future<void> _probe() async {
@@ -80,20 +88,27 @@ class _LoginScreenState extends State<LoginScreen> {
       final chucNangId = obj['chucNangId'] as String?;
       final menuLoaded = obj['menuLoaded'] == true;
       final gradesId = obj['gradesChucNangId'] as String? ?? '';
-      if ((menuLoaded && chucNangId != null && gradesId.isNotEmpty) ||
-          _probesWithToken >= _menuWaitProbes) {
+      final scheduleId =
+          chucNangId ?? (obj['currentChucNangId'] as String? ?? '');
+      final menuReady = menuLoaded && chucNangId != null;
+      final timedOut = _probesWithToken >= _menuWaitProbes;
+      if (menuReady || (timedOut && scheduleId.isNotEmpty)) {
         _done = true;
         _timer?.cancel();
         widget.onSignedIn(
           Session(
             token: token,
             userId: userId,
-            chucNangId:
-                chucNangId ?? (obj['currentChucNangId'] as String? ?? ''),
+            chucNangId: scheduleId,
             portalIp: obj['clientIP'] as String? ?? '',
+            // Tài khoản không có mục Điểm học vẫn dùng được lịch; tab Kết quả
+            // tự báo lỗi khi `gradesChucNangId` rỗng.
             gradesChucNangId: gradesId,
           ),
         );
+      } else if (timedOut) {
+        _timer?.cancel();
+        setState(() => _menuError = true);
       } else {
         _probesWithToken++;
       }
@@ -125,47 +140,84 @@ class _LoginScreenState extends State<LoginScreen> {
                 )
               : null,
         ),
-        body: InAppWebView(
-          initialUrlRequest: URLRequest(url: WebUri(_loginUrl)),
-          initialSettings: InAppWebViewSettings(
-            javaScriptEnabled: true,
-            domStorageEnabled: true,
-            thirdPartyCookiesEnabled: true,
-            javaScriptCanOpenWindowsAutomatically: true,
-            supportMultipleWindows: false,
-            allowsBackForwardNavigationGestures: true,
-            useShouldOverrideUrlLoading: true,
+        body: Stack(
+          children: [
+            InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri(_loginUrl)),
+              initialSettings: InAppWebViewSettings(
+                javaScriptEnabled: true,
+                domStorageEnabled: true,
+                thirdPartyCookiesEnabled: true,
+                javaScriptCanOpenWindowsAutomatically: true,
+                supportMultipleWindows: false,
+                allowsBackForwardNavigationGestures: true,
+                useShouldOverrideUrlLoading: true,
+              ),
+              onWebViewCreated: (c) {
+                _web = c;
+                _startProbe();
+              },
+              onProgressChanged: (_, p) => setState(() => _progress = p / 100),
+              onUpdateVisitedHistory: (c, _, __) async {
+                final can = await c.canGoBack();
+                if (mounted && can != _canGoBack)
+                  setState(() => _canGoBack = can);
+              },
+              shouldOverrideUrlLoading: (c, action) async {
+                final uri = action.request.url;
+                final scheme = uri?.scheme.toLowerCase();
+                if (uri == null ||
+                    const {
+                      'http',
+                      'https',
+                      'about',
+                      'data',
+                      'blob',
+                    }.contains(scheme)) {
+                  return NavigationActionPolicy.ALLOW;
+                }
+                try {
+                  await launchUrl(
+                    Uri.parse(uri.toString()),
+                    mode: LaunchMode.externalApplication,
+                  );
+                } catch (_) {}
+                return NavigationActionPolicy.CANCEL;
+              },
+            ),
+            if (_menuError) _menuErrorBanner(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _menuErrorBanner(BuildContext context) {
+    final s = Theme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Material(
+          color: s.errorContainer,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Không đọc được mục “Lịch cá nhân” của tài khoản này. '
+                    'Kiểm tra lại quyền truy cập rồi thử lại.',
+                    style: TextStyle(color: s.onErrorContainer),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(onPressed: _retry, child: const Text('Thử lại')),
+              ],
+            ),
           ),
-          onWebViewCreated: (c) {
-            _web = c;
-            _startProbe();
-          },
-          onProgressChanged: (_, p) => setState(() => _progress = p / 100),
-          onUpdateVisitedHistory: (c, _, __) async {
-            final can = await c.canGoBack();
-            if (mounted && can != _canGoBack) setState(() => _canGoBack = can);
-          },
-          shouldOverrideUrlLoading: (c, action) async {
-            final uri = action.request.url;
-            final scheme = uri?.scheme.toLowerCase();
-            if (uri == null ||
-                const {
-                  'http',
-                  'https',
-                  'about',
-                  'data',
-                  'blob',
-                }.contains(scheme)) {
-              return NavigationActionPolicy.ALLOW;
-            }
-            try {
-              await launchUrl(
-                Uri.parse(uri.toString()),
-                mode: LaunchMode.externalApplication,
-              );
-            } catch (_) {}
-            return NavigationActionPolicy.CANCEL;
-          },
         ),
       ),
     );

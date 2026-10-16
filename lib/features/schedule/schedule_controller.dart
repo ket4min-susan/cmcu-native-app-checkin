@@ -300,7 +300,9 @@ class ScheduleController extends ChangeNotifier {
     _entries = cached ?? const [];
     _loading = true;
     _error = null;
-    _emit();
+    // Có dữ liệu cũ thì vẽ ngay, không dựng spinner (tránh nhấp nháy
+    // spinner → bảng khi dữ liệu về trong cùng khung hình).
+    if (cached == null) _emit();
     _loadFuture = _fetch(start, token);
   }
 
