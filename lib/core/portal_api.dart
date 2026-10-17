@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
@@ -220,6 +221,8 @@ class PortalApi {
       if (session.token.isNotEmpty) 'Authorization': 'Bearer ${session.token}',
       'User-Agent': userAgent,
       'Origin': portalOrigin,
+      'Referer': '$portalOrigin/congthongtin/Index.aspx',
+      'X-Requested-With': 'XMLHttpRequest',
     };
     final cookie = await cookieHeader(url);
     if (cookie != null && cookie.isNotEmpty) headers['Cookie'] = cookie;
@@ -236,7 +239,18 @@ class PortalApi {
     } on http.ClientException {
       throw PortalException(offlineMessage);
     }
-    if (res.statusCode == 401) throw SessionExpiredException();
+    if (res.statusCode == 401) {
+      // Chỉ ghi loại request và cờ hiện diện, không tokenTail/cookie/ID/body.
+      debugPrint(
+        '[auth] http_401 api=${action.split('/').first} '
+        'bearerPresent=${session.token.isNotEmpty} '
+        'cookiePresent=${cookie != null && cookie.isNotEmpty} '
+        'userAgentPresent=${userAgent.isNotEmpty} '
+        'refererPresent=${headers.containsKey('Referer')} '
+        'ajaxHeaderPresent=${headers.containsKey('X-Requested-With')}',
+      );
+      throw SessionExpiredException();
+    }
     if (res.statusCode < 200 || res.statusCode > 299) {
       throw PortalException(
         'Cổng sinh viên trả về lỗi HTTP ${res.statusCode}.',

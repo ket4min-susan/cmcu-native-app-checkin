@@ -1,0 +1,91 @@
+import 'dart:convert';
+
+import 'package:cmc_checkin/core/portal_api.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
+import 'academic_fixture.dart';
+
+void main() {
+  test(
+    'Schedule request uses captured UA, API-path cookies and portal AJAX headers',
+    () async {
+      Uri? cookieUrl;
+      final api = PortalApi(
+        session: testSession,
+        userAgent: 'synthetic WebView user agent',
+        cookieHeader: (url) async {
+          cookieUrl = url;
+          return 'portal_session=synthetic-cookie';
+        },
+        client: MockClient((request) async {
+          expect(cookieUrl, request.url);
+          expect(
+            request.headers['Authorization'],
+            'Bearer ${testSession.token}',
+          );
+          expect(request.headers['Cookie'], 'portal_session=synthetic-cookie');
+          expect(request.headers['User-Agent'], 'synthetic WebView user agent');
+          expect(request.headers['Origin'], portalOrigin);
+          expect(
+            request.headers['Referer'],
+            '$portalOrigin/congthongtin/Index.aspx',
+          );
+          expect(request.headers['X-Requested-With'], 'XMLHttpRequest');
+          return http.Response(jsonEncode({'Success': true, 'Data': []}), 200);
+        }),
+      );
+      addTearDown(api.close);
+      expect(
+        await api.weekSchedule(DateTime(2026, 10, 12), DateTime(2026, 10, 18)),
+        isEmpty,
+      );
+    },
+  );
+
+  for (final cookie in [null, 'portal_session=secret-test-cookie']) {
+    test(
+      'HTTP 401 is not retried; diagnostics redact credentials (cookie=${cookie != null})',
+      () async {
+        final lines = <String>[];
+        final previous = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) =>
+            lines.add(message ?? '');
+        addTearDown(() => debugPrint = previous);
+        var requests = 0;
+        final api = PortalApi(
+          session: testSession,
+          userAgent: 'secret-test-user-agent',
+          cookieHeader: (_) async => cookie,
+          client: MockClient((_) async {
+            requests++;
+            return http.Response('secret-test-response', 401);
+          }),
+        );
+        addTearDown(api.close);
+        await expectLater(
+          api.weekSchedule(DateTime(2026, 10, 12), DateTime(2026, 10, 18)),
+          throwsA(isA<SessionExpiredException>()),
+        );
+        expect(requests, 1);
+        final output = lines.join('\n');
+        expect(output, contains('http_401 api=SV_ThongTin_MH'));
+        expect(output, contains('cookiePresent=${cookie != null}'));
+        expect(output, contains('userAgentPresent=true'));
+        expect(output, contains('refererPresent=true'));
+        for (final secret in [
+          testSession.token,
+          testSession.userId,
+          'secret-test-cookie',
+          'secret-test-user-agent',
+          'secret-test-response',
+          'tokenTail',
+        ]) {
+          expect(output, isNot(contains(secret)));
+        }
+      },
+    );
+  }
+}

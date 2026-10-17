@@ -29,15 +29,31 @@ const _probeJs = r'''
       token: s.tokenJWT, userId: s.userId, clientIP: s.clientIP || '',
       chucNangId: match == null ? null : String(match),
       gradesChucNangId: grades == null ? '' : String(grades),
-      currentChucNangId: s.strChucNang_Id || '', menuLoaded: list.length > 0
+      currentChucNangId: s.strChucNang_Id || '', menuLoaded: list.length > 0,
+      userAgent: navigator.userAgent || ''
     });
   } catch (e) { return null; }
 })();
 ''';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, required this.onSignedIn});
+  const LoginScreen({
+    super.key,
+    required this.onSignedIn,
+    this.onUserAgentCaptured,
+    this.acceptToken,
+    this.resetting = false,
+    this.blocked = false,
+    this.sessionNotice,
+    this.onRetrySession,
+  });
   final void Function(Session session) onSignedIn;
+  final Future<void> Function(String userAgent)? onUserAgentCaptured;
+  final bool Function(String token)? acceptToken;
+  final bool resetting;
+  final bool blocked;
+  final String? sessionNotice;
+  final VoidCallback? onRetrySession;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -51,6 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _done = false;
   bool _probing = false;
   bool _menuError = false;
+  bool _tokenRejected = false;
   int _probesWithToken = 0;
 
   @override
@@ -61,25 +78,40 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _startProbe() {
     _timer?.cancel();
-    _menuError = false;
+    if (widget.resetting || widget.blocked || _tokenRejected) return;
     _timer = Timer.periodic(_probeInterval, (_) => _probe());
   }
 
   void _retry() {
-    _probesWithToken = 0;
+    setState(() {
+      _menuError = false;
+      _probesWithToken = 0;
+    });
     _startProbe();
     _web?.reload();
   }
 
   Future<void> _probe() async {
     final web = _web;
-    if (_done || _probing || web == null || !mounted) return;
+    if (_done ||
+        _probing ||
+        web == null ||
+        !mounted ||
+        widget.resetting ||
+        widget.blocked ||
+        _tokenRejected)
+      return;
     _probing = true;
     try {
       final uri = await web.getUrl();
       if (uri?.host != 'iu.cmcu.edu.vn' || uri?.scheme != 'https') return;
       final raw = await web.evaluateJavascript(source: _probeJs);
-      if (raw is! String || _done) return;
+      if (raw is! String ||
+          _done ||
+          !mounted ||
+          widget.resetting ||
+          widget.blocked)
+        return;
       final obj = jsonDecode(raw) as Map<String, dynamic>;
       final token = obj['token'] as String?;
       final userId = obj['userId'] as String?;
@@ -93,6 +125,14 @@ class _LoginScreenState extends State<LoginScreen> {
       final menuReady = menuLoaded && chucNangId != null;
       final timedOut = _probesWithToken >= _menuWaitProbes;
       if (menuReady || (timedOut && scheduleId.isNotEmpty)) {
+        if (widget.acceptToken?.call(token) == false) {
+          _timer?.cancel();
+          setState(() => _tokenRejected = true);
+          return;
+        }
+        final userAgent = obj['userAgent'] as String? ?? '';
+        await widget.onUserAgentCaptured?.call(userAgent);
+        if (!mounted || widget.resetting || widget.blocked) return;
         _done = true;
         _timer?.cancel();
         widget.onSignedIn(
@@ -140,53 +180,120 @@ class _LoginScreenState extends State<LoginScreen> {
                 )
               : null,
         ),
-        body: Stack(
-          children: [
-            InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri(_loginUrl)),
-              initialSettings: InAppWebViewSettings(
-                javaScriptEnabled: true,
-                domStorageEnabled: true,
-                thirdPartyCookiesEnabled: true,
-                javaScriptCanOpenWindowsAutomatically: true,
-                supportMultipleWindows: false,
-                allowsBackForwardNavigationGestures: true,
-                useShouldOverrideUrlLoading: true,
+        body: widget.resetting
+            ? const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Đang xóa dữ liệu phiên đăng nhập cũ…'),
+                  ],
+                ),
+              )
+            : widget.blocked || _tokenRejected
+            ? _sessionBlocked(context)
+            : Stack(
+                children: [
+                  InAppWebView(
+                    initialUrlRequest: URLRequest(url: WebUri(_loginUrl)),
+                    initialSettings: InAppWebViewSettings(
+                      javaScriptEnabled: true,
+                      domStorageEnabled: true,
+                      thirdPartyCookiesEnabled: true,
+                      javaScriptCanOpenWindowsAutomatically: true,
+                      supportMultipleWindows: false,
+                      allowsBackForwardNavigationGestures: true,
+                      useShouldOverrideUrlLoading: true,
+                    ),
+                    onWebViewCreated: (c) {
+                      _web = c;
+                      _startProbe();
+                    },
+                    onProgressChanged: (_, p) {
+                      if (mounted) setState(() => _progress = p / 100);
+                    },
+                    onUpdateVisitedHistory: (c, _, __) async {
+                      final can = await c.canGoBack();
+                      if (mounted && can != _canGoBack)
+                        setState(() => _canGoBack = can);
+                    },
+                    shouldOverrideUrlLoading: (c, action) async {
+                      final uri = action.request.url;
+                      final scheme = uri?.scheme.toLowerCase();
+                      if (uri == null ||
+                          const {
+                            'http',
+                            'https',
+                            'about',
+                            'data',
+                            'blob',
+                          }.contains(scheme)) {
+                        return NavigationActionPolicy.ALLOW;
+                      }
+                      try {
+                        await launchUrl(
+                          Uri.parse(uri.toString()),
+                          mode: LaunchMode.externalApplication,
+                        );
+                      } catch (_) {}
+                      return NavigationActionPolicy.CANCEL;
+                    },
+                  ),
+                  if (widget.sessionNotice != null)
+                    Align(
+                      alignment: Alignment.topCenter,
+                      child: Material(
+                        color: Theme.of(context).colorScheme.secondaryContainer,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(widget.sessionNotice!),
+                        ),
+                      ),
+                    ),
+                  if (_menuError) _menuErrorBanner(context),
+                ],
               ),
-              onWebViewCreated: (c) {
-                _web = c;
-                _startProbe();
-              },
-              onProgressChanged: (_, p) => setState(() => _progress = p / 100),
-              onUpdateVisitedHistory: (c, _, __) async {
-                final can = await c.canGoBack();
-                if (mounted && can != _canGoBack)
-                  setState(() => _canGoBack = can);
-              },
-              shouldOverrideUrlLoading: (c, action) async {
-                final uri = action.request.url;
-                final scheme = uri?.scheme.toLowerCase();
-                if (uri == null ||
-                    const {
-                      'http',
-                      'https',
-                      'about',
-                      'data',
-                      'blob',
-                    }.contains(scheme)) {
-                  return NavigationActionPolicy.ALLOW;
-                }
-                try {
-                  await launchUrl(
-                    Uri.parse(uri.toString()),
-                    mode: LaunchMode.externalApplication,
-                  );
-                } catch (_) {}
-                return NavigationActionPolicy.CANCEL;
-              },
-            ),
-            if (_menuError) _menuErrorBanner(context),
-          ],
+      ),
+    );
+  }
+
+  Widget _sessionBlocked(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_reset_rounded,
+                size: 48,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Không thể khôi phục phiên đăng nhập',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _tokenRejected
+                    ? 'Cổng sinh viên trả lại phiên cũ đã bị từ chối. '
+                          'Đã dừng tự đăng nhập để tránh lặp.'
+                    : widget.sessionNotice ?? 'Vui lòng đăng nhập lại.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              FilledButton.icon(
+                onPressed: widget.onRetrySession,
+                icon: const Icon(Icons.login_rounded),
+                label: const Text('Đăng nhập lại'),
+              ),
+            ],
+          ),
         ),
       ),
     );

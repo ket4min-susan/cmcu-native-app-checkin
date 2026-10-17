@@ -30,6 +30,15 @@ Tên hiển thị iOS và widget là **IU CheckIn**. Biểu trưng được cung
 
 Nếu đang dùng phiên đăng nhập cũ, **đăng xuất rồi đăng nhập lại** để thu nhận thêm quyền menu “Điểm học”. App lấy riêng ID menu lịch và điểm từ phiên portal; phiên cũ thiếu quyền xem điểm sẽ hiện hướng dẫn đăng nhập lại.
 
+### Phục hồi phiên khi API trả HTTP 401 (#4)
+
+- App dừng request cũ, xóa session đã lưu, cache widget, cookie/cache/storage của WebView trước khi mở trang đăng nhập mới. iOS/macOS dùng `WKWebsiteDataStore` qua `removeDataModifiedSince`; Android dùng `deleteAllData`. Nếu dọn dữ liệu thất bại, app dừng và hiện nút **Đăng nhập lại**, không tiếp tục bằng cookie cũ.
+- Token đã bị API từ chối không được nhận lại từ `Index.aspx`. Nếu hai phiên liên tiếp cùng bị 401, kể cả hai token khác nhau, app dừng tự đăng nhập. Chỉ API lịch thành công hoặc người dùng chủ động bấm **Đăng nhập lại** mới bắt đầu chu kỳ phục hồi mới; probe đọc được token không reset bộ đếm.
+- Request dùng `navigator.userAgent` thu được từ trang đăng nhập (fallback UA mặc định khi khôi phục phiên đã lưu), cookie đúng URL API, `Origin`, `Referer` và `X-Requested-With: XMLHttpRequest`.
+- Log `[auth] http_401` chỉ báo nhóm API và sự hiện diện của Bearer/cookie/UA/header; `tokenRepeated` và `reason=rejected_token` phân biệt phiên cũ bị dùng lại. Không ghi token/tokenTail, cookie, ID, IP, request body hoặc response body. Token mới vẫn bị 401 chưa chứng minh nguyên nhân cụ thể; cần xác minh request trong phiên hợp lệ trên thiết bị.
+
+Kiểm thử hồi quy nằm trong `test/session_recovery_test.dart`, `test/login_session_test.dart`, `test/portal_session_test.dart` và `test/web_session_test.dart`. Với bản sửa #4: Flutter 3.47.7 / Dart 3.13.5, `flutter analyze --no-pub` không có vấn đề; `flutter test --no-pub --timeout 45s` đạt **54 test** (31 test cũ + 23 test mới). Không gọi portal thật, không dùng tài khoản hoặc dữ liệu sinh viên thật. Chưa xác minh SSO trên thiết bị thật hoặc build APK/IPA.
+
 HAR cục bộ có thể kiểm tra offline:
 
 ```sh
