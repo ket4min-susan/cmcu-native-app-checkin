@@ -61,7 +61,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
         c.refreshTime();
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _handleRequest();
+      if (!mounted) return;
+      _onChange();
+      _handleRequest();
     });
   }
 
@@ -78,7 +80,9 @@ class _ScheduleScreenState extends State<ScheduleScreen>
       _expiredHandled = false;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _handleRequest();
+      if (!mounted) return;
+      _onChange();
+      _handleRequest();
     });
   }
 

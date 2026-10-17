@@ -9,6 +9,7 @@ import 'core/app_preferences.dart';
 import 'core/app_brand.dart';
 import 'core/portal_api.dart';
 import 'core/session_store.dart';
+import 'core/session_recovery.dart';
 import 'core/web_session.dart';
 import 'core/widget_bridge.dart';
 import 'features/login/login_screen.dart';
@@ -59,11 +60,7 @@ class CmcCheckinApp extends StatelessWidget {
 }
 
 class AuthGate extends StatefulWidget {
-  const AuthGate({
-    super.key,
-    this.initialSession,
-    required this.preferences,
-  });
+  const AuthGate({super.key, this.initialSession, required this.preferences});
   final Session? initialSession;
   final AppPreferences preferences;
 
@@ -75,7 +72,10 @@ class _AuthGateState extends State<AuthGate> {
   Session? _session;
   ScheduleController? _controller;
   bool _creatingController = false;
+  bool _resettingSession = false;
   bool _checkInRequested = false;
+  int _loginGeneration = 0;
+  final _recovery = SessionRecovery();
   StreamSubscription<Uri>? _links;
 
   @override
@@ -115,7 +115,9 @@ class _AuthGateState extends State<AuthGate> {
     if (_creatingController) return;
     _creatingController = true;
     try {
+      final generation = _loginGeneration;
       final ua = await WebSession.userAgent();
+      if (_resettingSession || generation != _loginGeneration) return;
       final existing = _controller;
       if (existing != null && identical(existing.api.session, s)) return;
       if (!mounted) return;
@@ -123,15 +125,19 @@ class _AuthGateState extends State<AuthGate> {
         session: s,
         userAgent: ua,
         cookieHeader: WebSession.cookieHeader,
+        diagnosticLog: debugPrint,
       );
       final controller = ScheduleController(
         api: api,
         fallbackIp: s.portalIp,
-        onCurrentWeekLoaded: (week, entries) => WidgetBridge.publish(
-          signedIn: true,
-          weekStart: week,
-          entries: entries,
-        ),
+        onCurrentWeekLoaded: (week, entries) {
+          _recovery.confirmAuthenticated();
+          WidgetBridge.publish(
+            signedIn: true,
+            weekStart: week,
+            entries: entries,
+          );
+        },
       );
       final old = _controller;
       setState(() {
@@ -146,42 +152,58 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   Future<void> _onSignedIn(Session s) async {
+    if (_resettingSession || !_recovery.acceptToken(s.token)) return;
+    final generation = _loginGeneration;
     await SessionStore.save(s);
-    if (!mounted) return;
+    if (!mounted || _resettingSession || generation != _loginGeneration) return;
     await _createController(s);
-    await WidgetBridge.publish(signedIn: true);
+    if (mounted && identical(_session, s) && !_resettingSession) {
+      await WidgetBridge.publish(signedIn: true);
+    }
   }
 
   Future<void> _onSessionExpired() async {
-    await SessionStore.clear();
-    if (!mounted) return;
-    _controller?.api.close();
-    _controller?.dispose();
-    setState(() {
-      _session = null;
-      _controller = null;
-    });
-    await WidgetBridge.publish(signedIn: false);
+    final session = _session;
+    if (session == null || _resettingSession) return;
+    await _resetSession(() => _recovery.expire(session));
   }
 
-  Future<void> _onSignOut() async {
-    await SessionStore.clear();
-    await WidgetBridge.clear();
-    await WebSession.clearAll();
-    if (!mounted) return;
-    _controller?.api.close();
-    _controller?.dispose();
+  Future<void> _onSignOut() => _resetSession(_recovery.retry);
+
+  Future<void> _resetSession(Future<void> Function() reset) async {
+    if (_resettingSession || !mounted) return;
+    final old = _controller;
     setState(() {
+      _resettingSession = true;
+      _loginGeneration++;
       _session = null;
       _controller = null;
+      _checkInRequested = false;
     });
+    // Chặn kết quả request đang chạy trước khi dọn session/cookie.
+    old?.dispose();
+    old?.api.close();
+    try {
+      await reset();
+    } finally {
+      if (mounted) setState(() => _resettingSession = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
     if (_session == null) {
-      return LoginScreen(onSignedIn: _onSignedIn);
+      return LoginScreen(
+        key: ValueKey(_loginGeneration),
+        onSignedIn: _onSignedIn,
+        onUserAgentCaptured: WebSession.rememberUserAgent,
+        acceptToken: _recovery.acceptToken,
+        resetting: _resettingSession,
+        blocked: _recovery.blocked,
+        sessionNotice: _recovery.notice,
+        onRetrySession: _onSignOut,
+      );
     }
     if (controller == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));

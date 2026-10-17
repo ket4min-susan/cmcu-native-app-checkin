@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -83,12 +84,18 @@ class PortalApi {
     required this.userAgent,
     required this.cookieHeader,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+    void Function(String message)? diagnosticLog,
+  }) : _client = client ?? http.Client(),
+       _diagnosticLog = diagnosticLog ?? _logDiagnostic;
 
   final Session session;
   final String userAgent;
   final Future<String?> Function(Uri url) cookieHeader;
   final http.Client _client;
+  final void Function(String message) _diagnosticLog;
+
+  static void _logDiagnostic(String message) =>
+      developer.log(message, name: 'auth');
 
   Future<List<ScheduleEntry>> weekSchedule(DateTime from, DateTime to) async {
     const action = 'SV_ThongTin_MH/DSA4BRINKCIpAiAPKSAv';
@@ -220,6 +227,8 @@ class PortalApi {
       if (session.token.isNotEmpty) 'Authorization': 'Bearer ${session.token}',
       'User-Agent': userAgent,
       'Origin': portalOrigin,
+      'Referer': '$portalOrigin/congthongtin/Index.aspx',
+      'X-Requested-With': 'XMLHttpRequest',
     };
     final cookie = await cookieHeader(url);
     if (cookie != null && cookie.isNotEmpty) headers['Cookie'] = cookie;
@@ -236,7 +245,18 @@ class PortalApi {
     } on http.ClientException {
       throw PortalException(offlineMessage);
     }
-    if (res.statusCode == 401) throw SessionExpiredException();
+    if (res.statusCode == 401) {
+      // Chỉ ghi loại request và cờ hiện diện, không tokenTail/cookie/ID/body.
+      _diagnosticLog(
+        '[auth] http_401 api=${action.split('/').first} '
+        'bearerPresent=${session.token.isNotEmpty} '
+        'cookiePresent=${cookie != null && cookie.isNotEmpty} '
+        'userAgentPresent=${userAgent.isNotEmpty} '
+        'refererPresent=${headers.containsKey('Referer')} '
+        'ajaxHeaderPresent=${headers.containsKey('X-Requested-With')}',
+      );
+      throw SessionExpiredException();
+    }
     if (res.statusCode < 200 || res.statusCode > 299) {
       throw PortalException(
         'Cổng sinh viên trả về lỗi HTTP ${res.statusCode}.',

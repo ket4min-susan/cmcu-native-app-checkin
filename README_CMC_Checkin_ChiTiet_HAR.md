@@ -163,6 +163,8 @@ https://iu.cmcu.edu.vn/chuyencanapi/api/CC_ThongTin/Them_QLSV_NguoiHoc_TuGhiNhan
 
 ### 3.2 Header HTTP và khác biệt được ghi nhận trong HAR
 
+**Cập nhật mã chạy (#4):** Client Dart trong `lib/` đã bổ sung `Referer`, `X-Requested-With` và thu `navigator.userAgent` từ trang login. Chính sách giữ cookie sau 401 trong các code sample Swift/Dart bên dưới là thiết kế cũ; không dùng nguyên mẫu đó để thay thế `SessionRecovery` hiện tại. Xem mục phục hồi phiên trong `README.md`.
+
 **[README gốc / mã tham khảo]** Bảng dưới phản ánh cách tác giả README xây HTTP client và hành vi *có điều kiện* trong JavaScript portal. **[HAR thực tế]** Hai POST nghiệp vụ quan sát được **không** mang `Authorization` hoặc `Cookie` trong danh sách request headers của HAR. `systemroot.js` chỉ thêm Authorization khi có `tokenJWT`. Vì vậy, không nên coi toàn bộ header dưới đây là *bắt buộc trên mọi request* và cũng không được suy diễn rằng API có thể gọi không cần phiên đăng nhập. Thực hiện xác thực theo đúng phiên được portal hỗ trợ, không tự chế hoặc đoán token.
 
 | Header | Giá trị trong client mẫu / điều kiện |
@@ -298,7 +300,7 @@ Kết quả: chỉ khi `Success == true` mới coi là thành công ⇒ trả `M
 
 | Tình huống | Hành vi |
 |---|---|
-| HTTP 401 | `SessionExpired` → xóa session, quay về màn đăng nhập (giữ cookie để Microsoft đăng nhập lại nhanh) |
+| HTTP 401 | `SessionExpired` → xóa session, widget và cookie/cache/storage WebView rồi mới mở login; chặn token đã bị từ chối và dừng sau 2 phiên lỗi liên tiếp (bản sửa #4, xem README.md) |
 | HTTP khác 2xx | Lỗi `"The portal answered HTTP <code>"` |
 | Body không phải JSON object | `"Unexpected response from the portal."` |
 | `Success != true` | Lỗi với `Message` (mặc định `"The portal rejected the request."`) |
@@ -369,7 +371,7 @@ Client không tự định nghĩa API đăng nhập mới; WebView sử dụng l
 |---|---|
 | Đăng nhập xong | Lưu session (Keychain/SecureStorage), vào màn lịch, làm mới widget |
 | Mở lại app | `load()` session; nếu có → vào thẳng màn lịch (token có thể đã hết hạn → 401 → quay lại đăng nhập) |
-| Token hết hạn (401) | Xóa **session** (giữ cookie WebView) → màn đăng nhập → Microsoft thường đăng nhập lại ngay |
+| Token hết hạn (401) | Xóa **session + widget + cookie/cache/storage WebView** trước khi mở login; token cũ bị chặn, hai phiên lỗi liên tiếp cần người dùng bấm đăng nhập lại (#4) |
 | Đăng xuất chủ động | Xóa session **+ cache lịch + toàn bộ cookie/website data của WebView** |
 | Refresh token | **Không có** |
 
