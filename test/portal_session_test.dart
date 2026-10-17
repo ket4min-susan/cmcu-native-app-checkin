@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:cmc_checkin/core/portal_api.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -50,15 +49,12 @@ void main() {
       'HTTP 401 is not retried; diagnostics redact credentials (cookie=${cookie != null})',
       () async {
         final lines = <String>[];
-        final previous = debugPrint;
-        debugPrint = (String? message, {int? wrapWidth}) =>
-            lines.add(message ?? '');
-        addTearDown(() => debugPrint = previous);
         var requests = 0;
         final api = PortalApi(
           session: testSession,
           userAgent: 'secret-test-user-agent',
           cookieHeader: (_) async => cookie,
+          diagnosticLog: lines.add,
           client: MockClient((_) async {
             requests++;
             return http.Response('secret-test-response', 401);

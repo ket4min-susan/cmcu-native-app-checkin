@@ -125,6 +125,7 @@ class _AuthGateState extends State<AuthGate> {
         session: s,
         userAgent: ua,
         cookieHeader: WebSession.cookieHeader,
+        diagnosticLog: debugPrint,
       );
       final controller = ScheduleController(
         api: api,

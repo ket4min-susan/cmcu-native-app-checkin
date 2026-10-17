@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'models.dart';
@@ -84,12 +84,18 @@ class PortalApi {
     required this.userAgent,
     required this.cookieHeader,
     http.Client? client,
-  }) : _client = client ?? http.Client();
+    void Function(String message)? diagnosticLog,
+  }) : _client = client ?? http.Client(),
+       _diagnosticLog = diagnosticLog ?? _logDiagnostic;
 
   final Session session;
   final String userAgent;
   final Future<String?> Function(Uri url) cookieHeader;
   final http.Client _client;
+  final void Function(String message) _diagnosticLog;
+
+  static void _logDiagnostic(String message) =>
+      developer.log(message, name: 'auth');
 
   Future<List<ScheduleEntry>> weekSchedule(DateTime from, DateTime to) async {
     const action = 'SV_ThongTin_MH/DSA4BRINKCIpAiAPKSAv';
@@ -241,7 +247,7 @@ class PortalApi {
     }
     if (res.statusCode == 401) {
       // Chỉ ghi loại request và cờ hiện diện, không tokenTail/cookie/ID/body.
-      debugPrint(
+      _diagnosticLog(
         '[auth] http_401 api=${action.split('/').first} '
         'bearerPresent=${session.token.isNotEmpty} '
         'cookiePresent=${cookie != null && cookie.isNotEmpty} '
